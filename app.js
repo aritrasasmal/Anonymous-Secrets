@@ -1,7 +1,9 @@
+require('dotenv').config()
+//console.log(process.env) 
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
+const md5 = require('crypto-js/md5');
 
 const app = express();
 
@@ -11,7 +13,7 @@ app.use(express.static("public"));
 
 main().catch(err => console.log(err));
 async function main(){
-    await mongoose.connect("mongodb+srv://dba:yT6pUuzFuGWyG0rp@cluster0.2zhul.mongodb.net/secretsDB");
+    await mongoose.connect("mongodb+srv://"+process.env.DB_IDPW+"@cluster0.2zhul.mongodb.net/secretsDB");
 }
 
 const userSchema = new mongoose.Schema({
@@ -19,11 +21,9 @@ const userSchema = new mongoose.Schema({
     password: String
 });
 
-const secret = "thisIsaSecretKey";
-userSchema.plugin(encrypt, {secret: secret, encryptedFields: ['password']});
+//userSchema.plugin(encrypt, {secret: process.env.SECRET, encryptedFields: ['password']});
 
 const User = mongoose.model("User", userSchema);
-
 
 app.get("/", (req, res) =>{
     res.render("home");
@@ -41,7 +41,7 @@ app.get("/login", (req, res) =>{
 app.post("/register", (req, res) =>{
     const user = new User({
         username: req.body.username,
-        password: req.body.password
+        password: md5(req.body.password)
     });
     user.save((err)=>{
         if (err) console.log(err);
@@ -55,7 +55,7 @@ app.post("/login", (req, res)=>{
     User.findOne({username: req.body.username}, (err, foundUser)=>{
         if (err) console.log(err);
         else{
-            if ((foundUser) && foundUser.password === req.body.password)  res.render("secrets");
+            if ((foundUser) && foundUser.password === md5(req.body.password).toString())  res.render("secrets");
             else res.send("User not found or password not matching!");
         }
     })
