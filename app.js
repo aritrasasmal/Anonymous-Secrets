@@ -3,7 +3,8 @@ require('dotenv').config()
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const md5 = require('crypto-js/md5');
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
 
 const app = express();
 
@@ -39,27 +40,34 @@ app.get("/login", (req, res) =>{
 });
 
 app.post("/register", (req, res) =>{
-    const user = new User({
-        username: req.body.username,
-        password: md5(req.body.password)
-    });
-    user.save((err)=>{
-        if (err) console.log(err);
-        else{
-            res.render("secrets");
-        }
-    });
+    bcrypt.hash(req.body.password, saltRounds, (error,hash)=>{
+        const user = new User({
+            username: req.body.username,
+            password: hash
+        });
+        user.save((err) => {
+            if (err) console.log(err);
+            else {
+                res.render("secrets");
+            }
+        });
+    })
 })
 
 app.post("/login", (req, res)=>{
     User.findOne({username: req.body.username}, (err, foundUser)=>{
         if (err) console.log(err);
         else{
-            if ((foundUser) && foundUser.password === md5(req.body.password).toString())  res.render("secrets");
-            else res.send("User not found or password not matching!");
+            if (foundUser) {
+                bcrypt.compare(req.body.password, foundUser.password, (err, result)=>{
+                    if (result) res.render("secrets");
+                    else res.send("Password not matching!");
+                });    
+            } 
+            else res.send("User not found ");  
         }
-    })
-})
+    });
+});
 
 app.listen(3000, function() {
     console.log("Server started on port 3000");
