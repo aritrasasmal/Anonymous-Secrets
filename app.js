@@ -1,11 +1,13 @@
 require('dotenv').config()
-//console.log(process.env) 
+
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
 const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
+const findOrCreatePlugin = require('mongoose-findorcreate');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 
 const app = express();
 
@@ -14,7 +16,7 @@ app.use(express.urlencoded({extended: true}));
 app.use(express.static("public"));
 
 app.use(session({
-    secret: "our little secret",
+    secret: process.env.SECRET,
     resave: false,
     saveUninitialized: true
 }));
@@ -29,17 +31,64 @@ async function main(){
 
 const userSchema = new mongoose.Schema({
     username: String,
-    password: String
+    password: String,
+    googleId: String
 });
+
+const secretSchema = new mongoose.Schema({
+    userId: String,
+    secret: String
+});
+
+const Secret = mongoose.model("Secret", secretSchema);
 
 //userSchema.plugin(encrypt, {secret: process.env.SECRET, encryptedFields: ['password']});
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreatePlugin);
 
 const User = mongoose.model("User", userSchema);
 
 passport.use(User.createStrategy());
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function(user, cb) {
+    process.nextTick(function() {
+      cb(null, { id: user._id, username: user.username });
+    });
+  });
+  
+// passport.deserializeUser(function(id, done) {
+//     User.findById(id, function(err, user){
+//         done(null, user.id);
+//     })
+// });
+passport.deserializeUser(function(user, cb) {
+    process.nextTick(function() {
+      return cb(null, user);
+    });
+  });
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/callback"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    //console.log(email.emails[0].value);
+    console.log(profile);
+    User.findOrCreate({ googleId: profile.id, username: profile.emails[0].value }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
+
+app.get("/auth/google",
+  passport.authenticate('google', { scope: ["openid profile email"] }));
+
+app.get('/auth/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect home.
+    res.redirect('/secrets');
+  });
 
 app.get("/", (req, res) =>{
     res.render("home");
@@ -53,20 +102,46 @@ app.get("/login", (req, res) =>{
     res.render("login");
 });
 
-app.get("/logout"), (req, res) =>{
+app.get("/logout", (req, res) =>{
+    //console.log(req);
     req.logOut((err)=>{
+        if (err) console.log(err);
         res.redirect("/");
     });
-}
+});
 
 app.get("/secrets", (req, res)=>{
+    // res.set(
+    //     'Cache-Control', 
+    //     'no-cache, private, no-store, must-revalidate, max-stal e=0, post-check=0, pre-check=0'
+    // );
+    // if(req.isAuthenticated()) res.render("secrets");
+    // else res.redirect("/");
+    Secret.find({}, (err, foundSecrets)=>{
+        if (err) console.log(err);
+        else{
+            if(foundSecrets) res.render("secrets", {secrets: foundSecrets});
+        }
+    })
+});
+
+app.get("/submit", (req, res) =>{
     res.set(
         'Cache-Control', 
         'no-cache, private, no-store, must-revalidate, max-stal e=0, post-check=0, pre-check=0'
     );
-    if(req.isAuthenticated()) res.render("secrets");
-    else res.redirect("/");
-});
+    if(req.isAuthenticated()) res.render("submit");
+    else res.redirect("/login");
+})
+
+app.post("/submit", (req, res) =>{
+    const secret = new Secret({
+        secret: req.body.secret
+    });
+    secret.save((err)=>{
+        if (!err) res.redirect("/secrets");
+    });
+})
 
 app.post("/register", (req, res) =>{
     User.register({username: req.body.username}, req.body.password, (err, user)=>{
